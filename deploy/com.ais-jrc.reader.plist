@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ais-jrc.reader</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/ABSOLUTE/PATH/ais_jrc/.venv/bin/python</string>
+        <string>-u</string>
+        <string>/ABSOLUTE/PATH/ais_jrc/decode.py</string>
+        <string>--port</string>
+        <string>auto</string>
+        <string>--serial-number</string>
+        <string>REPLACE_WITH_USB_SERIAL_NUMBER</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/ABSOLUTE/PATH/ais_jrc</string>
+    <!-- Add MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD here to enable MQTT.
+         launchd does not inherit environment variables from your terminal. -->
+    <key>EnvironmentVariables</key>
+    <dict/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/ABSOLUTE/PATH/ais_jrc/ais-reader.log</string>
+    <key>StandardErrorPath</key>
+    <string>/ABSOLUTE/PATH/ais_jrc/ais-reader-error.log</string>
+</dict>
+</plist>

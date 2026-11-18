@@ -1,5 +1,22 @@
+# Python caches and virtual environments
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
+venv/
+env/
+
+# Local configuration and credentials
 .env
+.env.*
 *.env
+!.env.example
+!*.env.example
+
+# Logs and test output
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+
+# macOS metadata
+.DS_Store

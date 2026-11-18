@@ -4,10 +4,13 @@ import json
 import time
 from datetime import datetime, timezone
 
-import serial
+from contextlib import closing
 from pyais import decode
 
 from mqtt_publisher import add_mqtt_arguments, create_publisher
+from serial_connection import (
+    PortSelector, add_serial_arguments, print_ports, serial_lines, stop_on_sigterm,
+)
 
 
 def parse_args():
@@ -15,8 +18,7 @@ def parse_args():
         description="AIS Serial Reader & Decoder"
     )
 
-    parser.add_argument("-p", "--port", required=True)
-    parser.add_argument("-b", "--baudrate", type=int, default=38400)
+    add_serial_arguments(parser)
 
     parser.add_argument(
         "--type",
@@ -61,7 +63,15 @@ def parse_args():
 
     add_mqtt_arguments(parser)
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.list_ports:
+        print_ports()
+        parser.exit()
+    try:
+        PortSelector(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def get_position(data):
@@ -175,16 +185,10 @@ def main():
     print("Listening AIS data... CTRL+C to stop\n")
 
     try:
-        with serial.Serial(
-            port=args.port,
-            baudrate=args.baudrate,
-            timeout=1
-        ) as ser:
-
-            while True:
-                line = ser.readline()
-
-                if not line:
+        with stop_on_sigterm(), closing(serial_lines(args)) as lines:
+            for line in lines:
+                if line is None:
+                    pending.clear()
                     continue
 
                 raw = line.decode(
@@ -272,9 +276,6 @@ def main():
 
     except KeyboardInterrupt:
         print("\nAIS reader stopped.")
-
-    except serial.SerialException as e:
-        print(f"Serial error: {e}")
 
     finally:
         publisher.close()

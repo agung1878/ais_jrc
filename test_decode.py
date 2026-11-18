@@ -9,6 +9,7 @@ from pyais.encode import encode_dict
 
 import decode
 import mqtt_publisher
+import serial_connection
 
 
 class FakeSerial:
@@ -23,9 +24,12 @@ class FakeSerial:
 
     def readline(self):
         try:
-            return (next(self.sentences) + "\r\n").encode("ascii")
+            sentence = next(self.sentences)
         except StopIteration:
             raise KeyboardInterrupt
+        if isinstance(sentence, BaseException):
+            raise sentence
+        return (sentence + "\r\n").encode("ascii")
 
 
 class FakeMqtt:
@@ -47,21 +51,42 @@ class FakeMqtt:
 
 
 class DecodeMqttTests(unittest.TestCase):
-    def run_reader(self, sentences, message_type="BOTH"):
+    def run_reader(self, sentences, message_type="BOTH", sessions=None):
         client = FakeMqtt()
         args = SimpleNamespace(
-            port="/dev/fake", baudrate=38400, type=message_type,
+            port="/dev/fake", baudrate=38400, retry_interval=3, type=message_type,
             mmsi=None, msg_type=None, position_only=False, bbox=None,
             raw=False
         )
         output = io.StringIO()
         with patch.object(decode, "parse_args", return_value=args), \
                 patch.object(decode, "create_publisher",
-                             return_value=mqtt_publisher.MqttPublisher(client)), \
-                patch.object(decode.serial, "Serial", return_value=FakeSerial(sentences)), \
+                             return_value=mqtt_publisher.MqttPublisher(client)) as create_publisher, \
+                patch.object(serial_connection.serial, "Serial",
+                             side_effect=[FakeSerial(items) for items in sessions]
+                             if sessions is not None else [FakeSerial(sentences)]), \
+                patch.object(serial_connection.time, "sleep"), \
                 contextlib.redirect_stdout(output):
             decode.main()
+        create_publisher.assert_called_once()
         return client.messages
+
+    def test_reconnect_resumes_mqtt_and_discards_old_multipart_fragments(self):
+        multipart = encode_dict(
+            {"type": 5, "mmsi": 123456789, "shipname": "TEST SHIP"},
+            talker_id="AIVDM"
+        )
+        single = encode_dict({"type": 1, "mmsi": 123456789}, talker_id="AIVDM")
+        messages = self.run_reader([], sessions=[
+            [multipart[0], serial_connection.serial.SerialException("unplugged")],
+            [multipart[1]] + single + multipart,
+        ])
+        decoded = [json.loads(payload)["message_type"] for topic, payload, _ in messages
+                   if topic == mqtt_publisher.DECODED_TOPIC]
+        self.assertEqual(decoded, [1, 5])
+        self.assertEqual([payload for topic, payload, _ in messages
+                          if topic == mqtt_publisher.RAW_TOPIC],
+                         multipart + single + multipart)
 
     def test_raw_fragments_and_decoded_messages(self):
         vdm = encode_dict(

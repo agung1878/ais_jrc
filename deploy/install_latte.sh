@@ -4,16 +4,17 @@ umask 077
 
 usage() {
     cat <<'EOF'
-Usage: sudo bash deploy/install_latte.sh --broker-host IP_OR_DNS [--device /dev/ttyUSB0]
+Usage: sudo bash deploy/install_latte.sh [--broker-host IP_OR_DNS] [--device /dev/ttyUSB0]
 
 Requires Debian/Ubuntu with systemd, udev, and an attached USB-serial AIS device.
---broker-host is the address subscribers will use to reach this Latte.
+The publisher connects to localhost:1883; no server IP is required.
+--broker-host optionally sets the subscriber address shown at the end (default: localhost).
 If --device is omitted, exactly one /dev/serial/by-id/* device must exist.
 The installer prompts for ais_serial and ais_reader passwords; it never stores them in Git.
 EOF
 }
 
-broker_host=""
+broker_host="localhost"
 device=""
 while (($#)); do
     case "$1" in
@@ -142,6 +143,7 @@ fi
 
 install -d -m 0755 -o root -g root "$app_dir"
 install -m 0644 "$root_dir/decode.py" "$root_dir/mqtt_publisher.py" \
+    "$root_dir/serial_connection.py" \
     "$root_dir/requirements.txt" "$root_dir/README.md" "$app_dir/"
 umask 022
 if [[ ! -e "$app_dir/.venv/bin/python" ]]; then
@@ -229,6 +231,11 @@ systemctl enable --now mosquitto.service
 systemctl restart mosquitto.service
 systemctl enable --now ais-jrc.service
 systemctl restart ais-jrc.service
-echo "Selesai: /dev/ais -> $device; broker MQTT: $broker_host:1883"
+echo "Selesai: /dev/ais -> $device; publisher MQTT: localhost:1883"
+if [[ "$broker_host" == "localhost" || "$broker_host" == "127.0.0.1" ]]; then
+    echo "Subscriber di Latte: localhost:1883. Dari komputer lain, gunakan IP atau hostname Latte."
+else
+    echo "Subscriber dari komputer lain: $broker_host:1883"
+fi
 echo "Tanpa TLS, listener di semua antarmuka: batasi port 1883 ke LAN tepercaya."
 echo "Status: systemctl status ais-jrc mosquitto"

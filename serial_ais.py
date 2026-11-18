@@ -1,60 +1,33 @@
-
 import argparse
-import serial
+from contextlib import closing
 from datetime import datetime
 
+from serial_connection import (
+    PortSelector, add_serial_arguments, print_ports, serial_lines, stop_on_sigterm,
+)
 
-def read_serial(port, baudrate):
+
+def read_serial(args):
     try:
-        ser = serial.Serial(
-            port=port,
-            baudrate=baudrate,
-            timeout=1
-        )
-
-        print(f"Connected to {port}")
-        print(f"Baudrate: {baudrate}")
-        print("Listening for serial data... (CTRL+C to stop)\n")
-
-        while True:
-            data = ser.readline()
-
-            if data:
-                message = data.decode("utf-8", errors="replace").strip()
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                print(f"[{timestamp}] {message}", flush=True)
-
-    except serial.SerialException as e:
-        print(f"Serial error: {e}")
-
+        with stop_on_sigterm(), closing(serial_lines(args)) as lines:
+            for data in lines:
+                if data:
+                    message = data.decode("utf-8", errors="replace").strip()
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"[{timestamp}] {message}", flush=True)
     except KeyboardInterrupt:
-        print("\nStopped by user.")
-
-    finally:
-        if "ser" in locals() and ser.is_open:
-            ser.close()
-            print("Serial connection closed.")
+        print("\nStopped by user.", flush=True)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Read serial data and print to terminal"
-    )
-
-    parser.add_argument(
-        "--port", "-p",
-        required=True,
-        help="Serial port path (e.g. /dev/ttyUSB0)"
-    )
-
-    parser.add_argument(
-        "--baudrate", "-b",
-        type=int,
-        default=38400,
-        help="Serial baudrate (default: 38400)"
-    )
-
+    parser = argparse.ArgumentParser(description="Read serial data and print to terminal")
+    add_serial_arguments(parser)
     args = parser.parse_args()
-
-    read_serial(args.port, args.baudrate)
+    if args.list_ports:
+        print_ports()
+        parser.exit()
+    try:
+        PortSelector(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    read_serial(args)
