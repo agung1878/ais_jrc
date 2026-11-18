@@ -48,8 +48,8 @@ Posisi AIVDO hanya dipublish jika `lat` dan `lon` valid.
 ls -l /dev/serial/by-id/
 ```
 
-Jika tidak ada entri di `/dev/serial/by-id`, cek `/dev/ttyUSB*` atau
-`/dev/ttyACM*` yang muncul saat adapter dipasang.
+Jika tidak ada entri di `/dev/serial/by-id`, installer tetap dapat mendeteksi
+adapter langsung dari `/dev/ttyUSB*` atau `/dev/ttyACM*` melalui identitas udev.
 
 ### 2. Ambil kode
 
@@ -60,14 +60,20 @@ cd ais_jrc
 
 ### 3. Jalankan installer
 
-Tidak perlu memasukkan IP broker; service terhubung ke Mosquitto lokal:
+Tidak perlu memasukkan port serial atau IP broker. Installer otomatis memilih
+adapter AIS **FTDI FT231X USB UART**, vendor `0403`, product `6015`, serial
+`DU0ERIKF`, walaupun ada adapter lain atau symlink `/dev/serial/by-id` tidak
+tersedia. Nama port boleh berubah dari `ttyUSB0` ke `ttyUSB1`; pemilihan
+menggunakan identitas USB. Service terhubung ke Mosquitto lokal:
 
 ```sh
 sudo bash deploy/install_latte.sh
 ```
 
-Jika ada lebih dari satu USB-serial atau tidak ada symlink di
-`/dev/serial/by-id`, tambahkan perangkat AIS yang benar:
+Adapter harus terpasang saat instalasi. Jika adapter yang cocok belum ditemukan,
+installer berhenti sebelum memasang paket dan meminta pemasangan adapter.
+Untuk adapter lain atau jika lebih dari satu port memiliki identitas yang sama,
+pilih perangkat AIS secara eksplisit:
 
 ```sh
 sudo bash deploy/install_latte.sh --device /dev/ttyUSB0
@@ -318,7 +324,7 @@ didukung untuk broker lain dengan `MQTT_TLS=1`, `MQTT_PORT=8883`, dan
 Untuk tes tanpa perangkat/broker:
 
 ```sh
-python3 -m unittest -v test_decode test_serial_connection
+python3 -m unittest -v test_decode test_serial_connection test_install_latte
 ```
 
 ## Pembagian file
@@ -330,8 +336,10 @@ python3 -m unittest -v test_decode test_serial_connection
 - `mqtt_publisher.py`: konfigurasi broker, autentikasi, dan publish tiga topik.
 - `deploy/install_latte.sh` dan `deploy/ais-jrc.service`: installer Linux dan
   layanan yang berjalan otomatis saat boot.
+- `deploy/detect_ais_device.sh`: pemilihan adapter AIS dari identitas USB di Ubuntu.
 - `deploy/add_subscriber.sh`: pembuatan akun broker baca-saja tambahan.
 - `test_decode.py`: pengujian alur AIS dan publisher tanpa perangkat/broker.
 - `test_serial_connection.py`: pengujian pemilihan adapter, reconnect, dan shutdown.
+- `test_install_latte.py`: pengujian deteksi adapter installer dengan data udev simulasi.
 - `deploy/com.ais-jrc.reader.plist`: template LaunchAgent macOS.
 - `requirements.txt`: daftar dependensi Python.

@@ -9,7 +9,9 @@ Usage: sudo bash deploy/install_latte.sh [--broker-host IP_OR_DNS] [--device /de
 Requires Debian/Ubuntu with systemd, udev, and an attached USB-serial AIS device.
 The publisher connects to localhost:1883; no server IP is required.
 --broker-host optionally sets the subscriber address shown at the end (default: localhost).
-If --device is omitted, exactly one /dev/serial/by-id/* device must exist.
+Without --device, selects FTDI FT231X USB UART 0403:6015, serial DU0ERIKF.
+Scans ttyUSB*/ttyACM* directly; /dev/serial/by-id links are not required.
+Use --device to override automatic selection for another adapter or interface.
 The installer prompts for ais_serial and ais_reader passwords; it never stores them in Git.
 EOF
 }
@@ -45,15 +47,15 @@ if [[ "$broker_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     python3 -c 'import ipaddress, sys; ipaddress.IPv4Address(sys.argv[1])' "$broker_host"
 fi
 
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$root_dir/deploy/detect_ais_device.sh"
+
 if [[ -z "$device" ]]; then
     shopt -s nullglob
-    devices=(/dev/serial/by-id/*)
+    devices=(/dev/ttyUSB* /dev/ttyACM*)
     shopt -u nullglob
-    if ((${#devices[@]} != 1)); then
-        echo "Tentukan --device karena jumlah perangkat /dev/serial/by-id/ bukan satu." >&2
-        exit 1
-    fi
-    device="${devices[0]}"
+    device="$(detect_ais_device "${devices[@]}")"
+    echo "Adapter AIS terdeteksi: $device (FT231X, 0403:6015, serial DU0ERIKF)"
 fi
 device="$(realpath -e -- "$device")"
 if [[ ! "$device" =~ ^/dev/tty(USB|ACM)[0-9]+$ ]]; then
@@ -65,7 +67,6 @@ if [[ -e /dev/ais && "$(realpath -e -- /dev/ais)" != "$device" ]]; then
     exit 1
 fi
 
-root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 app_dir=/opt/ais-jrc
 config_dir=/etc/ais-jrc
 broker_dir=/etc/mosquitto/ais-jrc
