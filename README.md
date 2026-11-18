@@ -110,6 +110,41 @@ Hasil yang diharapkan:
 - Mosquitto mendengarkan `1883`.
 - Log `ais-jrc` menampilkan data decode atau pesan koneksi MQTT.
 
+Jika Mosquitto gagal dimulai, installer menampilkan log broker lalu berhenti.
+Konfigurasi paket ini juga mengirim log ke stderr agar error terlihat melalui
+`journalctl`. Untuk instalasi lama yang hanya menampilkan exit code di journal,
+lihat juga log file dan izin direktori/file:
+
+```sh
+sudo tail -n 60 /var/log/mosquitto/mosquitto.log
+sudo namei -l /etc/mosquitto/ais-jrc/passwd /etc/mosquitto/ais-jrc/acl
+sudo journalctl -k -n 100 --no-pager | grep -i 'apparmor\|denied'
+```
+
+Mosquitto perlu bisa membaca password dan ACL. Installer mengatur direktori
+`/etc/mosquitto/ais-jrc` sebagai `root:mosquitto` dengan mode `0750`, dan
+file `passwd` / `acl` sebagai `root:mosquitto` dengan mode `0640`. Jika AppArmor
+menolak akses ke file tersebut, izin Unix yang benar saja belum cukup. Installer
+menambahkan dua aturan baca melalui local override profil Mosquitto dan memuat
+ulang profil, tanpa mematikan AppArmor atau mengubah profil paket. Nama profil
+`mosquitto` dan `usr.sbin.mosquitto` didukung; aturan local lain tetap dipertahankan.
+
+Untuk memperbaiki instalasi yang sudah gagal karena penolakan AppArmor, salin
+repo terbaru (termasuk skrip baru) ke Ubuntu lalu jalankan:
+
+```sh
+sudo bash deploy/configure_mosquitto_apparmor.sh
+sudo systemctl reset-failed mosquitto.service
+sudo systemctl restart mosquitto.service
+sudo systemctl restart ais-jrc.service
+systemctl status mosquitto.service ais-jrc.service --no-pager
+```
+
+Skrip perbaikan hanya mengatur dua izin baca dan memuat ulang profil. Password,
+ACL, dan konfigurasi broker tidak ditulis ulang; tidak perlu memasukkan password
+MQTT lagi. Jika profil tidak memiliki local include, skrip berhenti dengan pesan
+yang menunjukkan include yang perlu ditambahkan di dalam profil terlebih dahulu.
+
 Jika perangkat dicabut dan dipasang lagi, `/dev/ais` harus tetap muncul
 (mengikuti serial adapter jika ada, atau port USB fisik jika adapter tidak punya
 serial). Jika perangkat belum ada saat boot atau dicabut saat berjalan, proses
@@ -324,7 +359,7 @@ didukung untuk broker lain dengan `MQTT_TLS=1`, `MQTT_PORT=8883`, dan
 Untuk tes tanpa perangkat/broker:
 
 ```sh
-python3 -m unittest -v test_decode test_serial_connection test_install_latte
+python3 -m unittest -v test_decode test_serial_connection test_install_latte test_apparmor
 ```
 
 ## Pembagian file
@@ -337,9 +372,11 @@ python3 -m unittest -v test_decode test_serial_connection test_install_latte
 - `deploy/install_latte.sh` dan `deploy/ais-jrc.service`: installer Linux dan
   layanan yang berjalan otomatis saat boot.
 - `deploy/detect_ais_device.sh`: pemilihan adapter AIS dari identitas USB di Ubuntu.
+- `deploy/configure_mosquitto_apparmor.sh`: local override AppArmor dan perbaikan instalasi lama.
 - `deploy/add_subscriber.sh`: pembuatan akun broker baca-saja tambahan.
 - `test_decode.py`: pengujian alur AIS dan publisher tanpa perangkat/broker.
 - `test_serial_connection.py`: pengujian pemilihan adapter, reconnect, dan shutdown.
 - `test_install_latte.py`: pengujian deteksi adapter installer dengan data udev simulasi.
+- `test_apparmor.py`: pengujian aturan local dan reload profil AppArmor dengan fixture.
 - `deploy/com.ais-jrc.reader.plist`: template LaunchAgent macOS.
 - `requirements.txt`: daftar dependensi Python.

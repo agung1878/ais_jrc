@@ -49,6 +49,7 @@ fi
 
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$root_dir/deploy/detect_ais_device.sh"
+source "$root_dir/deploy/configure_mosquitto_apparmor.sh"
 
 if [[ -z "$device" ]]; then
     shopt -s nullglob
@@ -203,6 +204,7 @@ listener 1883 0.0.0.0
 allow_anonymous false
 password_file $passwd_file
 acl_file $acl_file
+log_dest stderr
 EOF
 chmod 0644 "$broker_conf"
 
@@ -227,10 +229,20 @@ if [[ ! -e /dev/ais ]]; then
 fi
 
 install -m 0644 "$root_dir/deploy/ais-jrc.service" /etc/systemd/system/ais-jrc.service
+configure_mosquitto_apparmor
 systemctl daemon-reload
-systemctl enable --now mosquitto.service
-systemctl restart mosquitto.service
-systemctl enable --now ais-jrc.service
+systemctl enable mosquitto.service
+systemctl reset-failed mosquitto.service
+if ! systemctl restart mosquitto.service; then
+    echo "Mosquitto gagal dimulai. Log broker:" >&2
+    journalctl -u mosquitto.service -n 60 --no-pager >&2 || true
+    if [[ -f /var/log/mosquitto/mosquitto.log ]]; then
+        tail -n 60 /var/log/mosquitto/mosquitto.log >&2 || true
+    fi
+    echo "Periksa izin password/ACL dan penolakan AppArmor; service AIS belum dimulai oleh installer." >&2
+    exit 1
+fi
+systemctl enable ais-jrc.service
 systemctl restart ais-jrc.service
 echo "Selesai: /dev/ais -> $device; publisher MQTT: localhost:1883"
 if [[ "$broker_host" == "localhost" || "$broker_host" == "127.0.0.1" ]]; then
