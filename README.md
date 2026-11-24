@@ -81,9 +81,13 @@ aturan `/dev/ais` dijelaskan di [panduan USB serial AIS](PANDUAN_USB_SERIAL_AIS.
 ### 2. Ambil kode
 
 ```sh
-git clone https://github.com/ArifMunawarr/ais_jrc.git
+git clone --branch autoconnect --single-branch https://github.com/agung1878/ais_jrc.git
 cd ais_jrc
 ```
+
+Saat ini implementasi MQTT dan service terbaru berada di branch `autoconnect`;
+branch default `main` belum memuat perubahan tersebut. Jika nantinya perubahan
+sudah digabung ke `main`, sesuaikan pilihan branch saat clone.
 
 ### 3. Jalankan installer
 
