@@ -7,6 +7,31 @@ import unittest
 
 
 DETECTOR = Path(__file__).resolve().parent / "deploy" / "detect_ais_device.sh"
+INSTALLER = Path(__file__).resolve().parent / "deploy" / "install_latte.sh"
+
+
+class InstallerCliTests(unittest.TestCase):
+    def run_cli(self, *args):
+        return subprocess.run(["bash", str(INSTALLER), *args],
+                              capture_output=True, text=True)
+
+    def test_help_lists_staged_installation(self):
+        result = self.run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--components broker,service", result.stdout)
+        self.assertIn("--components device --device", result.stdout)
+
+    def test_invalid_component_and_conflicting_options_stop_before_install(self):
+        for args in (("--components", "unknown"),
+                     ("--components", "broker,service", "--device", "/dev/ttyUSB0"),
+                     ("--components", "device", "--broker-host", "example.test"),
+                     ("--components", "broker,"),
+                     ("--components", "broker,,service"),
+                     ("--components", "")):
+            with self.subTest(args=args):
+                result = self.run_cli(*args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+
 
 
 def properties(serial="DU0ERIKF", vendor="0403", product="6015"):

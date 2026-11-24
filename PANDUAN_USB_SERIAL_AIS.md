@@ -71,6 +71,23 @@ FT231X AIS `0403:6015`. Saat itu `/dev/ais` belum ada.
 
 ## 2. Instalasi di server baru dengan adaptor berbeda
 
+Jika adaptor belum tersedia, instal broker dan service terlebih dahulu tanpa
+komponen `device`:
+
+```sh
+sudo bash deploy/install_latte.sh --components broker,service
+```
+
+Service akan menunggu `/dev/ais`. Setelah adaptor dipasang dan port AIS
+teridentifikasi, buat aturan perangkat saja tanpa meminta ulang password MQTT:
+
+```sh
+sudo bash deploy/install_latte.sh --components device --device /dev/ttyUSB1
+```
+
+Ganti `/dev/ttyUSB1` dengan port AIS yang sebenarnya. `--help` menampilkan
+semua pilihan komponen.
+
 Jika adaptor mempunyai identitas default proyek
 `0403:6015 / DU0ERIKF`, installer dapat dijalankan tanpa pilihan perangkat:
 
@@ -101,9 +118,9 @@ instalasi, ubah aturan lokal menjadi berdasarkan `ID_PATH` seperti bagian 4,
 lalu pastikan hanya port AIS yang mendapat `/dev/ais`.
 
 Installer hanya menerima port USB serial yang akhirnya mengarah ke
-`/dev/ttyUSBN` atau `/dev/ttyACMN`. **Jangan jalankan installer penuh untuk
-sekadar mengganti adaptor di server yang sudah terpasang**: installer juga
-meminta ulang password dan menulis konfigurasi Mosquitto.
+`/dev/ttyUSBN` atau `/dev/ttyACMN`. Untuk menambahkan adaptor pada server
+yang sudah terpasang, gunakan `--components device --device /dev/ttyUSBN`:
+mode ini tidak menjalankan komponen broker dan tidak mengubah password MQTT.
 
 ## 3. Cara aturan `/dev/ais` dibuat
 

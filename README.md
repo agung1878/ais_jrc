@@ -59,7 +59,8 @@ service tidak bisa menulis ke folder repo.
 
 - Debian/Ubuntu dengan `systemd`, `apt`, dan `udev`.
 - Hak `sudo` dan koneksi jaringan untuk `apt` serta `pip` saat instalasi awal.
-- USB-serial AIS sudah terpasang.
+- USB-serial AIS sudah terpasang jika komponen `device` dipilih. Komponen
+  `broker,service` dapat dipasang lebih dulu tanpa USB.
 - Untuk subscriber dari komputer lain, IP atau hostname Latte harus bisa diakses
   komputer penerima; IP statik atau reservasi DHCP memudahkan koneksi tetap.
 - Jika Mosquitto sudah punya konfigurasi lain di `/etc/mosquitto/conf.d`,
@@ -67,7 +68,7 @@ service tidak bisa menulis ke folder repo.
 
 ## Instalasi sampai jalan di Latte
 
-### 1. Pasang perangkat dan cek port
+### 1. Periksa perangkat jika akan mengatur `/dev/ais` sekarang
 
 ```sh
 ls -l /dev/serial/by-id/
@@ -91,7 +92,31 @@ sudah digabung ke `main`, sesuaikan pilihan branch saat clone.
 
 ### 3. Jalankan installer
 
-Tidak perlu memasukkan port serial atau IP broker. Installer otomatis memilih
+Lihat semua pilihan dengan `bash deploy/install_latte.sh --help`. Tanpa opsi,
+installer memasang `broker`, `service`, dan `device` sekaligus; adaptor AIS
+harus terpasang. Jika USB belum ada, pasang broker dan service lebih dulu:
+
+```sh
+sudo bash deploy/install_latte.sh --components broker,service
+```
+
+Installer akan meminta password MQTT saat broker baru dipasang. Service dapat
+aktif sambil menunggu `/dev/ais`; status `active` belum berarti serial AIS
+sudah terbuka. Setelah adaptor dipasang, baca identitasnya sesuai
+[panduan USB serial AIS](PANDUAN_USB_SERIAL_AIS.md), lalu jalankan:
+
+```sh
+sudo bash deploy/install_latte.sh --components device --device /dev/ttyUSB1
+```
+
+Ganti `/dev/ttyUSB1` dengan port AIS pada server itu. Perintah tahap kedua
+tidak mengubah password atau konfigurasi Mosquitto. Komponen juga dapat
+dipilih satu per satu dengan `--components broker`, `--components service`,
+atau `--components device`; `service` membutuhkan broker AIS yang sudah
+terpasang atau dipilih dalam perintah yang sama.
+
+Untuk instalasi lengkap sekali jalan, tidak perlu memasukkan port serial atau
+IP broker jika adaptor cocok dengan identitas bawaan. Installer otomatis memilih
 adapter AIS **FTDI FT231X USB UART**, vendor `0403`, product `6015`, serial
 `DU0ERIKF`, walaupun ada adapter lain atau symlink `/dev/serial/by-id` tidak
 tersedia. Nama port boleh berubah dari `ttyUSB0` ke `ttyUSB1`; pemilihan
@@ -101,8 +126,9 @@ menggunakan identitas USB. Service terhubung ke Mosquitto lokal:
 sudo bash deploy/install_latte.sh
 ```
 
-Adapter harus terpasang saat instalasi. Jika adapter yang cocok belum ditemukan,
-installer berhenti sebelum memasang paket dan meminta pemasangan adapter.
+Pada instalasi lengkap yang memilih komponen `device`, adaptor harus terpasang.
+Jika adaptor yang cocok belum ditemukan, installer berhenti sebelum memasang
+paket dan meminta pemasangan adaptor.
 Untuk adapter lain atau jika lebih dari satu port memiliki identitas yang sama,
 pilih perangkat AIS secara eksplisit:
 
@@ -114,8 +140,8 @@ Opsi `--broker-host 192.168.1.50` tetap tersedia jika ingin menampilkan alamat
 untuk subscriber dari komputer lain di akhir instalasi. Opsi ini hanya mengatur
 petunjuk alamat subscriber; service selalu memakai `localhost:1883`.
 
-Installer akan meminta dua password di terminal; ketiknya lalu tekan Enter.
-Karakternya tidak akan tampil:
+Ketika komponen `broker` dipasang pertama kali, installer meminta dua password
+di terminal; ketiknya lalu tekan Enter. Karakternya tidak akan tampil:
 
 1. `Password broker untuk ais_serial`
 2. `Password subscriber untuk ais_reader`
