@@ -35,9 +35,10 @@ class FakeSerial:
 class FakeMqtt:
     def __init__(self):
         self.messages = []
+        self.connected = True
 
     def is_connected(self):
-        return True
+        return self.connected
 
     def publish(self, topic, payload, qos):
         self.messages.append((topic, payload, qos))
@@ -81,7 +82,7 @@ class DecodeMqttTests(unittest.TestCase):
             [multipart[0], serial_connection.serial.SerialException("unplugged")],
             [multipart[1]] + single + multipart,
         ])
-        decoded = [json.loads(payload)["message_type"] for topic, payload, _ in messages
+        decoded = [json.loads(payload)["messageType"] for topic, payload, _ in messages
                    if topic == mqtt_publisher.DECODED_TOPIC]
         self.assertEqual(decoded, [1, 5])
         self.assertEqual([payload for topic, payload, _ in messages
@@ -113,11 +114,18 @@ class DecodeMqttTests(unittest.TestCase):
         self.assertEqual(raw, vdm + multipart)
         self.assertEqual(len(own), 1)
         self.assertEqual((own[0]["lat"], own[0]["lon"]), (-6.2, 106.8))
-        self.assertEqual([item["message_type"] for item in decoded], [1, 5])
+        self.assertEqual([item["messageType"] for item in decoded], [1, 5])
+        self.assertEqual(decoded[0]["lat"], -6.2)
+        self.assertEqual(decoded[0]["lng"], 106.8)
+        self.assertEqual(decoded[0]["name"], None)
+        self.assertEqual(decoded[0]["text"], None)
+        self.assertNotIn("data", decoded[0])
+        self.assertEqual(decoded[1]["name"], "TEST SHIP")
+        self.assertIsNone(decoded[1]["lat"])
         self.assertEqual({topic for topic, _, _ in messages}, {
             "ais/aivdm/raw", "ais/aivdo/position", "ais/aivdm/decoded"
         })
-        self.assertTrue(all(qos == 1 for _, _, qos in messages))
+        self.assertTrue(all(qos == 0 for _, _, qos in messages))
 
     def test_invalid_own_position_is_not_published(self):
         vdo = encode_dict(
@@ -127,7 +135,7 @@ class DecodeMqttTests(unittest.TestCase):
         messages = self.run_reader(vdo)
         self.assertEqual(messages, [])
 
-    def test_vdo_does_not_publish_decoded(self):
+    def test_vdo_is_published_only_to_own_position(self):
         vdo = encode_dict(
             {"type": 1, "mmsi": 123456789, "lat": -6.2, "lon": 106.8},
             talker_id="AIVDO"
@@ -135,12 +143,100 @@ class DecodeMqttTests(unittest.TestCase):
         messages = self.run_reader(vdo)
         self.assertEqual([topic for topic, _, _ in messages],
                          ["ais/aivdo/position"])
+        payload = json.loads(messages[0][1])
+        self.assertEqual(set(payload), {"received_at", "lat", "lon"})
+        self.assertEqual((payload["lat"], payload["lon"]), (-6.2, 106.8))
 
     def test_raw_vdm_is_published_even_with_vdo_filter(self):
         vdm = encode_dict({"type": 1, "mmsi": 123456789}, talker_id="AIVDM")
         messages = self.run_reader(vdm, message_type="VDO")
         self.assertEqual([(topic, payload) for topic, payload, _ in messages],
                          [(mqtt_publisher.RAW_TOPIC, vdm[0])])
+
+    def test_bad_checksum_is_rejected_before_decode(self):
+        valid = encode_dict({"type": 1, "mmsi": 123456789}, talker_id="AIVDM")[0]
+        bad = valid[:-2] + ("00" if valid[-2:] != "00" else "FF")
+        messages = self.run_reader([bad, valid])
+        self.assertEqual([topic for topic, _, _ in messages], [
+            mqtt_publisher.RAW_TOPIC, mqtt_publisher.RAW_TOPIC,
+            mqtt_publisher.DECODED_TOPIC,
+        ])
+
+    def test_bad_multipart_fragment_cannot_complete_message(self):
+        parts = encode_dict({"type": 5, "mmsi": 123456789,
+                             "shipname": "TEST SHIP"}, talker_id="AIVDM")
+        bad_second = parts[1][:-2] + ("00" if parts[1][-2:] != "00" else "FF")
+        messages = self.run_reader([parts[0], bad_second])
+        self.assertEqual([topic for topic, _, _ in messages],
+                         [mqtt_publisher.RAW_TOPIC, mqtt_publisher.RAW_TOPIC])
+
+    def test_type_14_keeps_text_in_flat_json(self):
+        sentence = encode_dict({"type": 14, "mmsi": 123456789,
+                                "text": "TEST MESSAGE"}, talker_id="AIVDM")
+        messages = self.run_reader(sentence)
+        payload = json.loads(messages[-1][1])
+        self.assertEqual(payload["text"], "TEST MESSAGE")
+        self.assertIsNone(payload["lat"])
+        self.assertIsNone(payload["name"])
+
+    def test_type_5_maps_identity_and_voyage(self):
+        sentence = encode_dict({
+            "type": 5, "mmsi": 525015424, "shipname": "TEST SHIP",
+            "imo": 9934656, "callsign": "YDLF2", "ship_type": 80,
+            "to_bow": 83, "to_stern": 4, "to_port": 19,
+            "to_starboard": 3, "draught": 2.4,
+            "destination": "SAMARINDA", "month": 8, "day": 20,
+            "hour": 11, "minute": 0, "epfd": 1,
+        }, talker_id="AIVDM")
+        messages = self.run_reader(sentence)
+        payload = json.loads(messages[-1][1])
+        self.assertEqual([item[0] for item in messages].count(mqtt_publisher.DECODED_TOPIC), 1)
+        self.assertEqual(payload["mmsi"], "525015424")
+        self.assertEqual(payload["name"], "TEST SHIP")
+        self.assertEqual(payload["imo"], "9934656")
+        self.assertEqual(payload["type"], "TANKER")
+        self.assertEqual(payload["aisType"], 80)
+        self.assertEqual(payload["eta"], "08-20 11:00")
+        self.assertEqual(payload["dest"], "SAMARINDA")
+        self.assertEqual(payload["flag"], "ID")
+        self.assertIsNone(payload["lat"])
+        self.assertIsNone(payload["text"])
+
+    def test_binary_message_is_flat_and_payload_is_hex(self):
+        sentence = encode_dict({"type": 8, "mmsi": 123456789,
+                                "dac": 1, "fid": 2}, talker_id="AIVDM")
+        messages = self.run_reader(sentence)
+        payload = json.loads(messages[-1][1])
+        self.assertEqual(payload["messageType"], 8)
+        self.assertEqual(payload["dac"], 1)
+        self.assertEqual(payload["fid"], 2)
+        self.assertIsInstance(payload["binaryPayload"], str)
+        self.assertTrue(all(not isinstance(value, (dict, list))
+                            for value in payload.values()))
+
+    def test_known_position_sentence_and_bad_checksum(self):
+        valid = "!AIVDM,1,1,,A,17ldIP1P01Wa6mAtRpL1GQ6D0000,0*32"
+        bad = "!AIVDM,1,1,,A,15M67FC000G?ufbE`FepT@3n00Sa,0*5C"
+        messages = self.run_reader([valid, bad])
+        decoded = [json.loads(payload) for topic, payload, _ in messages
+                   if topic == mqtt_publisher.DECODED_TOPIC]
+        self.assertEqual(len(decoded), 1)
+        self.assertEqual(decoded[0]["mmsi"], "525015424")
+        self.assertEqual(decoded[0]["lat"], -6.038)
+        self.assertEqual(decoded[0]["lng"], 106.847)
+        self.assertEqual(decoded[0]["rot"], None)
+        self.assertEqual(decoded[0]["channel"], "A")
+
+    def test_disconnected_publisher_drops_messages(self):
+        client = FakeMqtt()
+        publisher = mqtt_publisher.MqttPublisher(client)
+        client.connected = False
+        publisher.publish_decoded('{"mmsi":"123456789"}')
+        client.connected = True
+        publisher.publish_decoded('{"mmsi":"987654321"}')
+        self.assertEqual(client.messages, [
+            (mqtt_publisher.DECODED_TOPIC, '{"mmsi":"987654321"}', 0)
+        ])
 
     def test_mqtt_requires_credentials(self):
         args = SimpleNamespace(mqtt_host="localhost", mqtt_port=1883, mqtt_tls=False)
@@ -161,9 +257,6 @@ class DecodeMqttTests(unittest.TestCase):
 
             def username_pw_set(self, username, password):
                 self.calls.append(("auth", username, password))
-
-            def max_queued_messages_set(self, count):
-                pass
 
             def tls_set(self, ca_certs=None):
                 self.calls.append(("tls", ca_certs))

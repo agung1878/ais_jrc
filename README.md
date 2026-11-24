@@ -15,20 +15,45 @@ Latte; tidak ada sertifikat TLS yang perlu diatur untuk pemakaian LAN.
   atau aplikasi penerima.
 - `/dev/ais` adalah nama tetap untuk USB-serial AIS dengan izin
   `dialout:0660`.
-- Program dipasang di `/opt/ais-jrc`; konfigurasi service tersimpan terbatas di
-  `/etc/ais-jrc/ais.env`.
+- Service menjalankan kode dan `.venv` langsung dari folder repo. Konfigurasi
+  MQTT tetap tersimpan terbatas di `/etc/ais-jrc/ais.env`.
 
 ## Topik MQTT
 
 | Topik | Isi |
 | --- | --- |
 | `ais/aivdm/raw` | Satu kalimat NMEA `!AIVDM,...` apa adanya per fragmen |
-| `ais/aivdo/position` | JSON `{"received_at":"...","mmsi":123456789,"lat":-6.2,"lon":106.8}` dari AIVDO dengan posisi valid |
-| `ais/aivdm/decoded` | JSON hasil decode AIVDM lengkap |
+| `ais/aivdo/position` | JSON `{"received_at":"...","lat":-6.2,"lon":106.8}` dari AIVDO dengan posisi valid |
+| `ais/aivdm/decoded` | Satu JSON datar per pesan AIVDM lengkap yang checksum-nya valid dan berhasil di-decode; tidak memuat AIVDO |
 
-Semua publish memakai QoS 1, tanpa retained message. Subscriber hanya menerima
-pesan yang dikirim setelah ia tersambung; broker tidak menyimpan riwayat.
-Posisi AIVDO hanya dipublish jika `lat` dan `lon` valid.
+Semua publish memakai QoS 0 tanpa retained message. Pesan saat MQTT terputus
+dilewati; tidak ada antrean atau pengiriman susulan. Subscriber hanya menerima
+pesan yang dikirim saat ia tersambung. AIVDO hanya dipublish ke topik posisi
+jika `lat` dan `lon` valid; AIVDO tanpa posisi valid tidak dipublish.
+
+JSON decoded selalu berisi `mmsi`, `ts`, `messageType`, `source`, `channel`,
+`lat`, `lng`, `cog`, `sog` (knot), `heading`, `navStat`, `rot`, `accuracy`,
+`aisSecond`, `raim`, `name`, `imo`, `callSign`, `type`, `aisType`, `flag`,
+`toBow`, `toStern`, `toStarboard`, `toPortside`, `draught`, `dest`, `eta`,
+`epfd`, `text`, `partNumber`, dan `binaryPayload`. Field yang tidak dibawa
+pesan bernilai `null`. Field tambahan dari tipe AIS lain tetap dikirim pada
+tingkat teratas. `binaryPayload` memakai teks heksadesimal. `flag` baru dipetakan untuk MID Indonesia (525) dan AS (366);
+MID lain bernilai `null`. Kalimat gagal checksum tetap terlihat di topik raw,
+tetapi tidak masuk decoded.
+
+Jika service sudah terpasang, aktifkan mode langsung dari folder repo tanpa
+mengulang installer atau mengubah akun broker:
+
+```sh
+sudo bash deploy/activate_repo_service.sh
+systemctl status ais-jrc.service --no-pager
+```
+
+Skrip menyiapkan `.venv` di repo, memberi akun `ais-jrc` izin baca yang diperlukan
+untuk melewati folder home, dan mengganti unit systemd agar membaca kode dari
+repo. Setelah itu, setiap perubahan kode di repo cukup diikuti dengan
+`sudo systemctl restart ais-jrc.service`. Unit memakai `ProtectHome=read-only`;
+service tidak bisa menulis ke folder repo.
 
 ## Persyaratan Latte
 
@@ -50,6 +75,8 @@ ls -l /dev/serial/by-id/
 
 Jika tidak ada entri di `/dev/serial/by-id`, installer tetap dapat mendeteksi
 adapter langsung dari `/dev/ttyUSB*` atau `/dev/ttyACM*` melalui identitas udev.
+Cara membaca identitas USB, memilih adaptor pada server lain, dan memperbarui
+aturan `/dev/ais` dijelaskan di [panduan USB serial AIS](PANDUAN_USB_SERIAL_AIS.md).
 
 ### 2. Ambil kode
 
@@ -223,17 +250,24 @@ sudo systemctl restart mosquitto        # restart broker
 ls -l /dev/ais                          # nama perangkat tetap
 ```
 
-Jika repo diperbarui, dari Latte:
+Jika repo diperbarui, dari Latte yang **sudah terpasang**:
 
 ```sh
 cd ais_jrc
 git pull
-sudo bash deploy/install_latte.sh
+sudo bash deploy/activate_repo_service.sh
+systemctl status ais-jrc.service --no-pager
 ```
 
-Masukkan password yang sama saat diminta, atau beri tahu pihak terkait jika
-password diubah. Installer menimpa file konfigurasi broker milik paket ini dan
-mengaktifkan ulang layanan.
+Pastikan perubahan sudah di-commit dan di-push ke remote yang dipakai server
+sebelum `git pull`; perubahan yang masih lokal di komputer lain tidak akan
+terambil. Skrip aktivasi tidak mengubah password atau konfigurasi broker.
+Pada instalasi lama, cek `/etc/mosquitto/ais-jrc/acl`: `ais_serial` perlu izin
+`topic write ais/aivdm/decoded` dan `ais_reader` perlu izin
+`topic read ais/aivdm/decoded`. Jika aturan ini belum ada, tambahkan di blok
+user masing-masing lalu restart `mosquitto.service`. Jangan menjalankan
+installer penuh hanya untuk memperbarui kode karena ia meminta ulang password
+dan menulis kembali konfigurasi Mosquitto.
 
 ## Menjalankan manual untuk pengembangan
 
@@ -352,7 +386,7 @@ pasang sebagai LaunchDaemon dengan user dan path yang sesuai kebijakan mesin.
 Filter output decode: `--type`, `--mmsi`, `--msg-type`, `--position-only`, dan
 `--bbox`. `ais/aivdm/raw` dan `ais/aivdo/position` tetap dipublish tanpa filter;
 filter hanya berlaku untuk output terminal dan `ais/aivdm/decoded`. AIVDO
-tidak dipublish ke `ais/aivdm/decoded` agar tidak ganda dengan topik posisi. TLS tetap
+dengan posisi valid hanya masuk topik `ais/aivdo/position`. TLS tetap
 didukung untuk broker lain dengan `MQTT_TLS=1`, `MQTT_PORT=8883`, dan
 `MQTT_CA_CERTS=/lokasi/ca.crt`.
 
@@ -368,9 +402,12 @@ python3 -m unittest -v test_decode test_serial_connection test_install_latte tes
 - `serial_connection.py`: deteksi USB-serial dan reconnect untuk macOS/Linux.
 - `decode.py`: pembaca serial, penggabungan fragmen, validasi posisi, filter,
   dan hasil decode AIS di terminal.
+- `ais_format.py`: validasi checksum dan format JSON datar untuk MQTT.
 - `mqtt_publisher.py`: konfigurasi broker, autentikasi, dan publish tiga topik.
 - `deploy/install_latte.sh` dan `deploy/ais-jrc.service`: installer Linux dan
   layanan yang berjalan otomatis saat boot.
+- `deploy/activate_repo_service.sh`: alihkan service terpasang agar menjalankan
+  kode langsung dari repo.
 - `deploy/detect_ais_device.sh`: pemilihan adapter AIS dari identitas USB di Ubuntu.
 - `deploy/configure_mosquitto_apparmor.sh`: local override AppArmor dan perbaikan instalasi lama.
 - `deploy/add_subscriber.sh`: pembuatan akun broker baca-saja tambahan.

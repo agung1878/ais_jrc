@@ -68,7 +68,6 @@ if [[ -e /dev/ais && "$(realpath -e -- /dev/ais)" != "$device" ]]; then
     exit 1
 fi
 
-app_dir=/opt/ais-jrc
 config_dir=/etc/ais-jrc
 broker_dir=/etc/mosquitto/ais-jrc
 broker_conf=/etc/mosquitto/conf.d/ais-jrc.conf
@@ -78,7 +77,7 @@ acl_file="$broker_dir/acl"
 echo "Memasang paket sistem dan dependensi Python..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    mosquitto python3 python3-venv udev
+    acl mosquitto python3 python3-venv udev
 
 if [[ ! -f /etc/mosquitto/mosquitto.conf ]] ||
         ! grep -Eq '^[[:space:]]*include_dir[[:space:]]+/etc/mosquitto/conf.d[[:space:]]*$' \
@@ -138,21 +137,10 @@ if ! getent group ais-jrc >/dev/null; then
 fi
 if ! id -u ais-jrc >/dev/null 2>&1; then
     useradd --system --gid ais-jrc --groups dialout \
-        --home-dir "$app_dir" --no-create-home --shell /usr/sbin/nologin ais-jrc
+        --home-dir "$root_dir" --no-create-home --shell /usr/sbin/nologin ais-jrc
 else
     usermod -aG dialout ais-jrc
 fi
-
-install -d -m 0755 -o root -g root "$app_dir"
-install -m 0644 "$root_dir/decode.py" "$root_dir/mqtt_publisher.py" \
-    "$root_dir/serial_connection.py" \
-    "$root_dir/requirements.txt" "$root_dir/README.md" "$app_dir/"
-umask 022
-if [[ ! -e "$app_dir/.venv/bin/python" ]]; then
-    python3 -m venv "$app_dir/.venv"
-fi
-"$app_dir/.venv/bin/python" -m pip install -r "$app_dir/requirements.txt"
-umask 077
 
 install -d -m 0750 -o root -g ais-jrc "$config_dir"
 install -d -m 0750 -o root -g mosquitto "$broker_dir"
@@ -228,9 +216,8 @@ if [[ ! -e /dev/ais ]]; then
     exit 1
 fi
 
-install -m 0644 "$root_dir/deploy/ais-jrc.service" /etc/systemd/system/ais-jrc.service
+bash "$root_dir/deploy/activate_repo_service.sh" --install-only
 configure_mosquitto_apparmor
-systemctl daemon-reload
 systemctl enable mosquitto.service
 systemctl reset-failed mosquitto.service
 if ! systemctl restart mosquitto.service; then

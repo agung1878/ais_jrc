@@ -40,7 +40,8 @@ class MqttPublisher:
         if not self.enabled or not self.client.is_connected():
             return
 
-        result = self.client.publish(topic, payload, qos=1)
+        # Live feed: QoS 0 avoids replaying an in-flight message after reconnect.
+        result = self.client.publish(topic, payload, qos=0)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
             print(f"MQTT publish error ({topic}): {mqtt.error_string(result.rc)}",
                   file=sys.stderr)
@@ -48,10 +49,9 @@ class MqttPublisher:
     def publish_raw(self, sentence):
         self._publish(RAW_TOPIC, sentence)
 
-    def publish_position(self, received_at, mmsi, lat, lon):
+    def publish_position(self, received_at, lat, lon):
         self._publish(POSITION_TOPIC, json.dumps({
             "received_at": received_at,
-            "mmsi": mmsi,
             "lat": lat,
             "lon": lon,
         }))
@@ -79,7 +79,6 @@ def create_publisher(args):
     ready = threading.Event()
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.username_pw_set(username, password)
-    client.max_queued_messages_set(1000)
     if args.mqtt_tls:
         client.tls_set(ca_certs=os.getenv("MQTT_CA_CERTS") or None)
 

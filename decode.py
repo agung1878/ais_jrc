@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from contextlib import closing
 from pyais import decode
 
+from ais_format import format_message, valid_checksum
 from mqtt_publisher import add_mqtt_arguments, create_publisher
 from serial_connection import (
     PortSelector, add_serial_arguments, print_ports, serial_lines, stop_on_sigterm,
@@ -124,7 +125,7 @@ def matches_filter(data, source, args):
     return True
 
 
-def handle_message(parts, source, args, publisher):
+def handle_message(parts, source, channel, args, publisher):
     try:
         decoded = decode(*parts)
         data = decoded.asdict()
@@ -136,31 +137,24 @@ def handle_message(parts, source, args, publisher):
             data.pop("lat", None)
             data.pop("lon", None)
 
-        received_at = datetime.now(timezone.utc).isoformat()
-        if source == "VDO" and position is not None:
-            lat, lon = position
-            publisher.publish_position(received_at, data.get("mmsi"), lat, lon)
+        received_at = datetime.now(timezone.utc)
+        if source == "VDO":
+            if position is not None:
+                lat, lon = position
+                publisher.publish_position(received_at.isoformat(), lat, lon)
+            return
 
         if not matches_filter(data, source, args):
             return
 
-        result = {
-            "received_at": received_at,
-            "source": source,
-            "mmsi": data.get("mmsi"),
-            "message_type": data.get(
-                "msg_type", data.get("type")
-            ),
-            "data": data,
-        }
+        result = format_message(data, source, channel, received_at)
 
         if args.raw:
-            result["raw"] = parts
+            result["raw"] = "\n".join(parts)
 
         payload = json.dumps(result, ensure_ascii=False, default=str)
         print(payload, flush=True)
-        if source == "VDM":
-            publisher.publish_decoded(payload)
+        publisher.publish_decoded(payload)
 
     except Exception as e:
         print(f"[DECODE ERROR] {e}", flush=True)
@@ -208,9 +202,13 @@ def main():
                 if raw.startswith("!AIVDM,"):
                     publisher.publish_raw(raw)
 
+                if not valid_checksum(raw):
+                    print(f"[CHECKSUM ERROR] {raw}", flush=True)
+                    continue
+
                 fields = raw.split(",")
 
-                if len(fields) < 7:
+                if len(fields) != 7:
                     continue
 
                 source = fields[0][3:]  # VDM atau VDO
@@ -225,9 +223,12 @@ def main():
                 except ValueError:
                     continue
 
+                if not 1 <= total <= 9 or not 1 <= number <= total:
+                    continue
+
                 # Single-part AIS message
                 if total == 1:
-                    handle_message([raw], source, args, publisher)
+                    handle_message([raw], source, fields[4], args, publisher)
                     continue
 
                 # Multipart AIS message
@@ -270,7 +271,7 @@ def main():
                                 for i in range(1, total + 1)
                             ]
 
-                            handle_message(parts, source, args, publisher)
+                            handle_message(parts, source, channel, args, publisher)
 
                         del pending[key]
 

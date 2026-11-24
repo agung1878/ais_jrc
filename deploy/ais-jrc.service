@@ -10,14 +10,14 @@ Type=simple
 User=ais-jrc
 Group=ais-jrc
 SupplementaryGroups=dialout
-WorkingDirectory=/opt/ais-jrc
+WorkingDirectory=@APP_DIR@
 EnvironmentFile=/etc/ais-jrc/ais.env
-ExecStart=/opt/ais-jrc/.venv/bin/python /opt/ais-jrc/decode.py --port /dev/ais --baudrate 38400
+ExecStart="@APP_DIR@/.venv/bin/python" "@APP_DIR@/decode.py" --port /dev/ais --baudrate 38400
 Restart=always
 RestartSec=10
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 PrivateTmp=true
 
 [Install]
