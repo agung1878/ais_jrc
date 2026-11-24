@@ -28,14 +28,14 @@ fi
 printf '%s\n%s\n' "$password" "$password" |
     mosquitto_passwd "$passwd_file" "$username" >/dev/null
 unset password
-chown root:mosquitto "$passwd_file"
+chown mosquitto:mosquitto "$passwd_file"
 chmod 0640 "$passwd_file"
 
 if ! grep -Fxq "user $username" "$acl_file"; then
     printf '\nuser %s\ntopic read ais/aivdm/raw\ntopic read ais/aivdo/position\ntopic read ais/aivdm/decoded\n' \
         "$username" >> "$acl_file"
 fi
-chown root:mosquitto "$acl_file"
+chown mosquitto:mosquitto "$acl_file"
 chmod 0640 "$acl_file"
 systemctl restart mosquitto.service
 echo "Akun subscriber $username dapat membaca topik AIS (tidak dapat publish)."

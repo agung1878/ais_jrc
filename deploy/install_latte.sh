@@ -214,7 +214,7 @@ if [[ "$do_broker" == true ]]; then
         printf '%s\n%s\n' "$reader_password" "$reader_password" |
             mosquitto_passwd "$passwd_file" ais_reader >/dev/null
         unset reader_password
-        chown root:mosquitto "$passwd_file"; chmod 0640 "$passwd_file"
+        chown mosquitto:mosquitto "$passwd_file"; chmod 0640 "$passwd_file"
         cat > "$acl_file" <<'EOF'
 user ais_serial
 topic write ais/aivdm/raw
@@ -226,7 +226,7 @@ topic read ais/aivdm/raw
 topic read ais/aivdo/position
 topic read ais/aivdm/decoded
 EOF
-        chown root:mosquitto "$acl_file"; chmod 0640 "$acl_file"
+        chown mosquitto:mosquitto "$acl_file"; chmod 0640 "$acl_file"
         cat > "$broker_conf" <<EOF
 listener 1883 0.0.0.0
 allow_anonymous false
@@ -242,6 +242,9 @@ EOF
         install -m 0640 -o root -g ais-jrc "$env_tmp" "$env_file"
         rm -f -- "$env_tmp"; trap - EXIT; unset mqtt_password
     fi
+    # Also correct installations created by older versions of this installer.
+    chown mosquitto:mosquitto "$passwd_file" "$acl_file"
+    chmod 0640 "$passwd_file" "$acl_file"
     configure_mosquitto_apparmor
     systemctl enable mosquitto.service
     systemctl reset-failed mosquitto.service
